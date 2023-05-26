@@ -11,7 +11,7 @@ class Graph_Recommender():
 
     def __init__(self, doc) -> None:
         self.doc = doc
-        self.artistas = [] #Aquí se van a guardar un diccionario con llave el nombre del artista en mayúsculas, su código de Spotify y los géneros asociados a él
+        self.artistas = set() #Aquí se van a guardar un diccionario con llave el nombre del artista en mayúsculas, su código de Spotify y los géneros asociados a él
         self.usuarios = [] #Aquí se guardan los usuarios con su top 10 asociado a ellos en un diccionario
         self.grafo_usuarios = None
     def crear_usuarios(self):
@@ -21,7 +21,10 @@ class Graph_Recommender():
                 usuario = {}
                 for i,a in enumerate(u):
                     usuario[i+1] = a
+                    self.artistas.add(a)
                 self.usuarios.append(usuario)
+    def fetch_genero_artistas(self):
+        pass
     def crear_grafo_usuarios(self):
         G = nx.Graph()
         #Crear los nodos numerados y con atributo el dict con el top de artistas
@@ -60,11 +63,8 @@ class Graph_Recommender():
             #Crea las aristas con los nodos con afinidad mínima
             for user in u1_min:
                 G.add_edge(u1, user)
-        print(G.edges)
-        nx.draw_networkx(G, with_labels = True, pos = nx.spiral_layout(G))
-        plt.draw()
+        nx.draw_networkx(G, pos = nx.spiral_layout(G))
         plt.show()
-        
 
 
 g = Graph_Recommender('./test_respuestas.csv')
