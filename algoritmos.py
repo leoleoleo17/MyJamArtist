@@ -184,7 +184,7 @@ class MyJamArtist():
         for i in range(7):
             rand_artist, rand_w = random.choice(list(recommends_final.items()))
             while((rand_artist, rand_w) in rands):
-              rand_artist, rand_w = random.randomchoice(list(recommends_final.items())) 
+              rand_artist, rand_w = random.choice(list(recommends_final.items())) 
             rands.append((rand_artist,rand_w))
             recommends_final_final[rand_artist]=rand_w
 
