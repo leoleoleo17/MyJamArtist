@@ -1,29 +1,28 @@
 import csv
 import networkx as nx
-import matplotlib.pyplot as plt
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from networkx.algorithms.community.centrality import girvan_newman
 import json
 import os.path
 import random
 
 '''
-Graph Recommender: Clase que construye 2 tipos de grafos: La red entre los usuarios  y la red de artistas por géneros. (No es necesario hacer el grafo de cada usuario porque el algoritmo de recomendación solo itera por los artistas)
+MyJamArtist: Clase que construye 2 tipos de grafos: La red entre los usuarios  y la red de artistas por géneros. La clase hace la unión entre estos dos grafos
+y aplica el filtrado colaborativo para generar la recomendación.
 Input: doc, el path del archivo .csv en donde cada fila representa a un usuario y cada columna representa el top de los usuarios en orden descendente
-Output: guarda en memoria los 2 grafos (todavía no se me ocurre como, de pronto usar pickle no je)
+Output: un diccionario con los artistas recomendados y su puntaje para un usuario en específico.
 '''
 class MyJamArtist():
 
     def __init__(self, doc) -> None:
         self.doc = doc
-        self.artistas = {} #Aquí se van a guardar un diccionario con llave el nombre del artista en mayúsculas, su código de Spotify y los géneros asociados a él
-        self.usuarios = [] #Aquí se guardan los usuarios con su top 10 asociado a ellos en un diccionario
+        self.artistas = {} #Aquí se van a guardar un diccionario con llave el nombre del artista en mayúsculas y sus géneros.
+        self.usuarios = [] #Aquí se guardan los usuarios con su top 10 asociado a ellos en un diccionario. Es una lista de diccionarios.
         self.grafo_usuarios = self.crear_grafo_usuarios()
         self.grafo_artistas = self.crear_grafo_artistas()
         self.grafo_recommend = self.crear_grafo_recommend()
 
-    def crear_usuarios(self):
+    def crear_usuarios(self): #Método que lee el CSV de la base de datos y construye la lista de diccionarios correspondientes a cada usuario.
         with open(self.doc) as d:
             reader = csv.reader(d, delimiter=';')
             for u in reader:
@@ -33,24 +32,21 @@ class MyJamArtist():
                     self.artistas[a]=[]
                 self.usuarios.append(usuario)
 
-    def get_artist_genres(self,artist_name):
-        # Set up Spotipy client credentials
+    def get_artist_genres(self,artist_name): #Consulta el API de spotify para obtener los géneros de un artista.
+        # Credenciales de Spotipy
         client_id = '4417bca2fc0f405aa211b519e067bbaf'
         client_secret = '9d53090efda44e968a6d4d5f5166ca36'
         client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
         sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
-        # Search for the artist
+        # Busca el Artista
         results = sp.search(q=artist_name, type='artist', limit=1)
         if 'artists' in results and 'items' in results['artists'] and len(results['artists']['items']) > 0:
             artist = results['artists']['items'][0]
             return artist['genres']
         else:
             return []
-    
-    def get_artist_re_artists(self,artist_name):
-        pass #para después xd
 
-    def fetch_genero_artistas(self):
+    def fetch_genero_artistas(self): #Llama a get_artist_genres() para obtener los géneros de todos los artistas. Crea el archivo JSON con esta información. Si el archivo ya está creado lo lee y lo transforma a un diccionario de Python
         if not os.path.isfile('./info_artists.txt'):
             for artista in self.artistas.keys():
                 self.artistas[artista]=self.get_artist_genres(artista)
@@ -61,27 +57,25 @@ class MyJamArtist():
             with open('./info_artists.txt', 'r') as f:
                 self.artistas = json.load(f)
 
-    def crear_grafo_usuarios(self):
+    def crear_grafo_usuarios(self): #Construye el grafo de usuarios donde un usuario está relacionado con otro en tanto comparten gustos musicales.
         self.crear_usuarios()
         self.fetch_genero_artistas()
         G = nx.Graph()
-        #Crear los nodos numerados y con atributo el dict con el top de artistas
+        #Crea los nodos numerados y con atributo dict con el top de artistas.
         for i,u in enumerate(self.usuarios):
-            G.add_node(i,top = u, min = [])
-        #Crear las aristas entre usuario según la métrica de afinidad entre usuarios
+            G.add_node(i,top = u)
+        #Crea las aristas entre usuario según la métrica de afinidad entre usuarios.
         for u1 in range(len(self.usuarios)):
             u1_min = {}
             for u2 in range(len(self.usuarios)):
                 if u1 != u2:
-                    #Calcula el common artists entre u1 y u2
+                    #Calcula el common artists entre u1 y u2.
                     artists_u1 = G.nodes[u1]['top'].values()
                     artists_u2 = G.nodes[u2]['top'].values()
                     a_u1 = set([i for i in artists_u1])
                     a_u2 = set([i for i in artists_u2])
                     CA = len(a_u1.intersection(a_u2))
-                    #print(f"|{u1} inter {u2}| = {CA}")
-                    if CA >= 2: #No tiene sentido buscar el common position cuando no comparten artistas
-                        #print(a_u1.intersection(a_u2))
+                    if CA >= 2: #No es necesario buscar el common position cuando no comparten artistas. Además, se restringe a que compartan mínimo dos artistas.
                         CP = 0
                         for u1_a, u2_a in zip(artists_u1,artists_u2):
                             if u2_a == u1_a:
@@ -118,7 +112,6 @@ class MyJamArtist():
                     g_a1 = set(G.nodes[a1]['genres'])
                     g_a2 = set(G.nodes[a2]['genres'])
                     CG = len(g_a1.intersection(g_a2)) #cantidad de géneros que comparten
-                    #print(f"|{u1} inter {u2}| = {CA}")
                     if CG!=0:
                         puntaje_a1_a2=1/CG
                     else:
@@ -138,7 +131,7 @@ class MyJamArtist():
                 G.add_edge(a1, artist, weight=a1_min[artist])
         return G
     
-    def crear_grafo_recommend(self):
+    def crear_grafo_recommend(self): #Hace la unión entre los grafos de artistas y usuarios, relacionando cada usuario con los artistas de su top 10.
         G=nx.union(self.grafo_artistas, self.grafo_usuarios)
         for u in range(len(self.usuarios)):
             artists_u=G.nodes[u]['top'].values()
@@ -148,28 +141,25 @@ class MyJamArtist():
                 cont+=1
         return G
 
-    def filtrado_lcd(self, u1, C):
+    def filtrado_lcd(self, u1):#Algoritmo de filtrado colaborativo. Nombrado en honor a los creadores uwu.
         recommends={}
         artistas_u1=set(self.grafo_usuarios.nodes[u1]['top'].values())
-        for c in C.nodes:
+        #Algoritmo de recomendación
+        for c in self.grafo_usuarios.nodes:
             w_min=10000
             if c != u1:
                 artistas_c= set(self.grafo_usuarios.nodes[c]['top'].values())
+                #Se filtran los artistas que pueden estar repetidos en los tops.
                 diff_sim=artistas_c.symmetric_difference(artistas_u1)
-                artistas_u1_sim=[]
-                artistas_c_sim=[]
-                for i in artistas_u1:
-                    if i in diff_sim:
-                        artistas_u1_sim.append(i)
-                for i in artistas_c:
-                    if i in diff_sim:
-                        artistas_c_sim.append(i)
+                artistas_u1_sim= artistas_u1.intersection(diff_sim)
+                artistas_c_sim= artistas_c.intersection(diff_sim)
                 for a in artistas_c_sim:
                     for b in artistas_u1_sim:
                         w_rec, path = nx.single_source_dijkstra(self.grafo_recommend, a, b, None, 'weight')
                         if w_rec<w_min:
                             w_min=w_rec
                             recommends[a]=w_min
+        #Escoge las 30 mejores recomendaciones
         recommends_final={}
         for r in recommends:
             if len(recommends_final) < 30: 
@@ -179,20 +169,27 @@ class MyJamArtist():
                     mx = max(recommends_final, key = recommends_final.get)
                     del recommends_final[mx]
                     recommends_final[r]=recommends[r]
-        recommends_final_final={}
         rands=[]
-        for i in range(7):
+        generos_u1 = set()
+        recommends_final_final={}
+
+        #Busca los artistas que comparten géneros con el usuario para mejorar la recomendación
+        for a in artistas_u1:
+            generos_A = self.artistas[a]
+            generos_u1.update(generos_A)
+        
+        for r in recommends_final:
+            g_r = set(self.artistas[r])
+            inter = g_r.intersection(generos_u1)
+            if len(inter) != 0 and len(recommends_final_final) <= 8:
+                recommends_final_final[r] = recommends_final[r]
+        
+        #Rellena la lista con aleatorios hasta tener 8 recomendaciones
+        while len(recommends_final_final) <= 8:
             rand_artist, rand_w = random.choice(list(recommends_final.items()))
             while((rand_artist, rand_w) in rands):
               rand_artist, rand_w = random.choice(list(recommends_final.items())) 
             rands.append((rand_artist,rand_w))
             recommends_final_final[rand_artist]=rand_w
 
-        return recommends_final_final
-
-
-g = MyJamArtist('proyecto_grafos/respuestas.csv')
-print(g.filtrado_lcd(27,g.grafo_usuarios))
-#print(gr)
-'''nx.draw(gr, with_labels=True)
-plt.show()'''
+        return artistas_u1, recommends_final_final
